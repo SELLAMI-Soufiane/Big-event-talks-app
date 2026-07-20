@@ -26,6 +26,7 @@ const elements = {
     searchInput: document.getElementById('search-input'),
     clearSearchBtn: document.getElementById('clear-search-btn'),
     sortSelect: document.getElementById('sort-select'),
+    exportCsvBtn: document.getElementById('export-csv-btn'),
     pillsContainer: document.getElementById('pills-container'),
     pillBtns: document.querySelectorAll('.pill-btn'),
     resetFiltersBtn: document.getElementById('reset-filters-btn'),
@@ -90,6 +91,9 @@ function setupEventListeners() {
         appState.sortBy = e.target.value;
         applyFiltersAndRender();
     });
+    
+    // Export CSV Actions
+    elements.exportCsvBtn.addEventListener('click', exportToCSV);
     
     // Category Pills
     elements.pillsContainer.addEventListener('click', (e) => {
@@ -311,6 +315,10 @@ function renderFeedGrid() {
                 ${release.html}
             </div>
             <div class="card-actions">
+                <button class="card-copy-btn" title="Copy update text to clipboard">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                    <span>Copy Text</span>
+                </button>
                 <button class="card-tweet-btn" title="Tweet this specific update">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
                     <span>Tweet Update</span>
@@ -322,6 +330,13 @@ function renderFeedGrid() {
         card.addEventListener('click', (e) => {
             // If the user clicked a link inside the card, let it open normally
             if (e.target.tagName === 'A' || e.target.closest('a')) {
+                return;
+            }
+            
+            // If the user clicked the direct "Copy Text" button, copy text immediately
+            if (e.target.closest('.card-copy-btn')) {
+                e.stopPropagation();
+                copyCardText(release, e.target.closest('.card-copy-btn'));
                 return;
             }
             
@@ -499,4 +514,78 @@ function postTweet() {
     const tweetUrl = `https://x.com/intent/tweet?text=${encoded}`;
     
     window.open(tweetUrl, '_blank');
+}
+
+// Copy single release note text to clipboard
+async function copyCardText(release, btn) {
+    const textToCopy = `BigQuery ${release.type} (${release.date}):\n${release.text}\n\nRead more: ${release.link}`;
+    try {
+        await navigator.clipboard.writeText(textToCopy);
+        
+        // Button Feedback animation
+        const originalHtml = btn.innerHTML;
+        btn.innerHTML = `
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            <span style="color: #10b981;">Copied!</span>
+        `;
+        
+        setTimeout(() => {
+            btn.innerHTML = originalHtml;
+        }, 2000);
+    } catch (err) {
+        console.error('Failed to copy card text:', err);
+        alert('Failed to copy text to clipboard.');
+    }
+}
+
+// Export currently filtered releases to a CSV file
+function exportToCSV() {
+    const data = appState.filteredReleases;
+    if (data.length === 0) {
+        alert("No data available to export.");
+        return;
+    }
+    
+    const headers = ["ID", "Date", "Updated Timestamp", "Type", "Link", "Text Content"];
+    
+    const escapeCSV = (val) => {
+        if (val === null || val === undefined) return "";
+        let str = String(val);
+        str = str.replace(/"/g, '""');
+        if (str.includes(",") || str.includes('"') || str.includes("\n") || str.includes("\r")) {
+            str = `"${str}"`;
+        }
+        return str;
+    };
+    
+    const csvRows = [];
+    csvRows.push(headers.join(","));
+    
+    for (const item of data) {
+        const row = [
+            escapeCSV(item.id),
+            escapeCSV(item.date),
+            escapeCSV(item.updated),
+            escapeCSV(item.type),
+            escapeCSV(item.link),
+            escapeCSV(item.text)
+        ];
+        csvRows.push(row.join(","));
+    }
+    
+    const csvContent = csvRows.join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    
+    // Formatting filename: bigquery_releases_yyyy_mm_dd.csv
+    const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, "_");
+    link.setAttribute("download", `bigquery_releases_${dateStr}.csv`);
+    link.style.visibility = 'hidden';
+    
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
 }
